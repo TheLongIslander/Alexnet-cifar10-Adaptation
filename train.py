@@ -6,6 +6,7 @@ import torchvision
 import torchvision.transforms as transforms
 import os
 import platform
+import csv
 from model import AlexNetCIFAR10
 
 def get_device():
@@ -19,17 +20,9 @@ def get_device():
         print("Using CPU backend")
         return torch.device("cpu")
 
-def main():
-    # Settings
-    batch_size = 64
-    learning_rate = 0.001
+def train_model(device, learning_rate, batch_size, use_dropout, use_batchnorm, run_id):
     num_epochs = 100
-    optimizer_type = 'SGD'  # Choose 'SGD', 'Adam', 'RMSprop'
-    use_dropout = True
-    use_batchnorm = False
-    patience = 5  # for early stopping
-
-    device = get_device()
+    patience = 5
 
     # Data Preparation
     transform_train = transforms.Compose([
@@ -45,15 +38,11 @@ def main():
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
     ])
 
-    trainset = torchvision.datasets.CIFAR10(root='./data', train=True,
-                                            download=True, transform=transform_train)
-    trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size,
-                                              shuffle=True, num_workers=0)  # Changed here
+    trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform_train)
+    trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True, num_workers=0)
 
-    testset = torchvision.datasets.CIFAR10(root='./data', train=False,
-                                           download=True, transform=transform_test)
-    testloader = torch.utils.data.DataLoader(testset, batch_size=batch_size,
-                                             shuffle=False, num_workers=0)  # Changed here
+    testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform_test)
+    testloader = torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=False, num_workers=0)
 
     # Model
     model = AlexNetCIFAR10(use_dropout=use_dropout, use_batchnorm=use_batchnorm).to(device)
@@ -63,14 +52,7 @@ def main():
     criterion = nn.CrossEntropyLoss()
 
     # Optimizer
-    if optimizer_type == 'SGD':
-        optimizer = optim.SGD(model.parameters(), lr=learning_rate, momentum=0.9, weight_decay=1e-4)
-    elif optimizer_type == 'Adam':
-        optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-4)
-    elif optimizer_type == 'RMSprop':
-        optimizer = optim.RMSprop(model.parameters(), lr=learning_rate, weight_decay=1e-4)
-    else:
-        raise ValueError('Unsupported optimizer type')
+    optimizer = optim.SGD(model.parameters(), lr=learning_rate, momentum=0.9, weight_decay=1e-4)
 
     # Training Loop
     best_acc = 0.0
@@ -98,7 +80,7 @@ def main():
             correct += predicted.eq(labels).sum().item()
 
         train_acc = 100. * correct / total
-        print(f'Epoch [{epoch+1}/{num_epochs}] Loss: {running_loss/len(trainloader):.4f} | Train Acc: {train_acc:.2f}%')
+        print(f'[Run {run_id}] Epoch [{epoch+1}/{num_epochs}] Loss: {running_loss/len(trainloader):.4f} | Train Acc: {train_acc:.2f}%')
 
         # Evaluation
         model.eval()
@@ -114,22 +96,68 @@ def main():
                 correct += predicted.eq(labels).sum().item()
 
         acc = 100. * correct / total
-        print(f'Validation Accuracy: {acc:.2f}%')
+        print(f'[Run {run_id}] Validation Accuracy: {acc:.2f}%')
 
-        # Save best model and reset patience
         if acc > best_acc:
             best_acc = acc
             patience_counter = 0
             if not os.path.isdir('checkpoint'):
-                os.mkdir('checkpoint')
-            torch.save(model.state_dict(), './checkpoint/alexnet_best.pth')
+                os.makedirs('checkpoint')
+            model_path = f'./checkpoint/run_{run_id}_best.pth'
+            torch.save(model.state_dict(), model_path)
         else:
             patience_counter += 1
             if patience_counter >= patience:
-                print("Early stopping triggered.")
+                print(f'[Run {run_id}] Early stopping triggered.')
                 break
 
-    print(f'Best Validation Accuracy: {best_acc:.2f}%')
+    print(f'[Run {run_id}] Best Validation Accuracy: {best_acc:.2f}%')
+    return best_acc
+
+def main():
+    device = get_device()
+
+    learning_rates = [0.01, 0.001, 0.0001]
+    batch_sizes = [32, 64, 128]
+    dropout_options = [True, False]
+    batchnorm_options = [False, True]
+
+    run_id = 1
+    results = []
+
+    # Prepare CSV file
+    with open('results.csv', mode='w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(['Run', 'Optimizer', 'LR', 'Batch Size', 'Dropout', 'Batch Norm', 'Final Accuracy'])
+
+    for lr in learning_rates:
+        for batch_size in batch_sizes:
+            for dropout in dropout_options:
+                for batchnorm in batchnorm_options:
+                    print(f'\n=== Starting Run {run_id} ===')
+                    print(f'LR: {lr}, Batch Size: {batch_size}, Dropout: {dropout}, BatchNorm: {batchnorm}\n')
+
+                    best_val_acc = train_model(device, lr, batch_size, dropout, batchnorm, run_id)
+
+                    # Save results
+                    with open('results.csv', mode='a', newline='') as f:
+                        writer = csv.writer(f)
+                        writer.writerow([run_id, 'SGD', lr, batch_size, dropout, batchnorm, f'{best_val_acc:.2f}%'])
+
+                    results.append({
+                        'Run': run_id,
+                        'Learning Rate': lr,
+                        'Batch Size': batch_size,
+                        'Dropout': dropout,
+                        'BatchNorm': batchnorm,
+                        'Best Validation Accuracy': best_val_acc
+                    })
+
+                    run_id += 1
+
+    print("\n=== All Runs Complete ===\n")
+    for res in results:
+        print(res)
 
 if __name__ == '__main__':
     main()
