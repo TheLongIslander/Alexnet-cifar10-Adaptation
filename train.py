@@ -7,6 +7,7 @@ import torchvision.transforms as transforms
 import os
 import platform
 import csv
+import argparse
 from model import AlexNetCIFAR10
 
 def get_device():
@@ -20,7 +21,7 @@ def get_device():
         print("Using CPU backend")
         return torch.device("cpu")
 
-def train_model(device, learning_rate, batch_size, use_dropout, use_batchnorm, run_id):
+def train_model(device, learning_rate, batch_size, use_dropout, use_batchnorm, run_id, optimizer_type):
     num_epochs = 100
     patience = 5
 
@@ -52,7 +53,14 @@ def train_model(device, learning_rate, batch_size, use_dropout, use_batchnorm, r
     criterion = nn.CrossEntropyLoss()
 
     # Optimizer
-    optimizer = optim.SGD(model.parameters(), lr=learning_rate, momentum=0.9, weight_decay=1e-4)
+    if optimizer_type.lower() == 'sgd':
+        optimizer = optim.SGD(model.parameters(), lr=learning_rate, momentum=0.9, weight_decay=1e-4)
+    elif optimizer_type.lower() == 'adam':
+        optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-4)
+    elif optimizer_type.lower() == 'rmsprop':
+        optimizer = optim.RMSprop(model.parameters(), lr=learning_rate, weight_decay=1e-4)
+    else:
+        raise ValueError(f"Unsupported optimizer: {optimizer_type}")
 
     # Training Loop
     best_acc = 0.0
@@ -103,7 +111,7 @@ def train_model(device, learning_rate, batch_size, use_dropout, use_batchnorm, r
             patience_counter = 0
             if not os.path.isdir('checkpoint'):
                 os.makedirs('checkpoint')
-            model_path = f'./checkpoint/run_{run_id}_best.pth'
+            model_path = f'./checkpoint/{optimizer_type}_run_{run_id}_best.pth'
             torch.save(model.state_dict(), model_path)
         else:
             patience_counter += 1
@@ -115,6 +123,11 @@ def train_model(device, learning_rate, batch_size, use_dropout, use_batchnorm, r
     return best_acc
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--optimizer', type=str, default='sgd', choices=['sgd', 'adam', 'rmsprop'], help='Optimizer to use: sgd | adam | rmsprop')
+    args = parser.parse_args()
+    optimizer_type = args.optimizer.lower()
+
     device = get_device()
 
     learning_rates = [0.01, 0.001, 0.0001]
@@ -126,7 +139,8 @@ def main():
     results = []
 
     # Prepare CSV file
-    with open('results.csv', mode='w', newline='') as f:
+    csv_filename = f'results_{optimizer_type}.csv'
+    with open(csv_filename, mode='w', newline='') as f:
         writer = csv.writer(f)
         writer.writerow(['Run', 'Optimizer', 'LR', 'Batch Size', 'Dropout', 'Batch Norm', 'Final Accuracy'])
 
@@ -134,15 +148,15 @@ def main():
         for batch_size in batch_sizes:
             for dropout in dropout_options:
                 for batchnorm in batchnorm_options:
-                    print(f'\n=== Starting Run {run_id} ===')
+                    print(f'\n=== Starting Run {run_id} with {optimizer_type.upper()} ===')
                     print(f'LR: {lr}, Batch Size: {batch_size}, Dropout: {dropout}, BatchNorm: {batchnorm}\n')
 
-                    best_val_acc = train_model(device, lr, batch_size, dropout, batchnorm, run_id)
+                    best_val_acc = train_model(device, lr, batch_size, dropout, batchnorm, run_id, optimizer_type)
 
                     # Save results
-                    with open('results.csv', mode='a', newline='') as f:
+                    with open(csv_filename, mode='a', newline='') as f:
                         writer = csv.writer(f)
-                        writer.writerow([run_id, 'SGD', lr, batch_size, dropout, batchnorm, f'{best_val_acc:.2f}%'])
+                        writer.writerow([run_id, optimizer_type.upper(), lr, batch_size, dropout, batchnorm, f'{best_val_acc:.2f}%'])
 
                     results.append({
                         'Run': run_id,
