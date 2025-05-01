@@ -124,16 +124,27 @@ def train_model(device, learning_rate, batch_size, use_dropout, use_batchnorm, r
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--optimizer', type=str, default='sgd', choices=['sgd', 'adam', 'rmsprop'], help='Optimizer to use: sgd | adam | rmsprop')
-    args = parser.parse_args()
-    optimizer_type = args.optimizer.lower()
+    parser.add_argument('--optimizer', type=str, default='sgd', choices=['sgd', 'adam', 'rmsprop'],
+                        help='Optimizer to use: sgd | adam | rmsprop')
+    parser.add_argument('--lr', type=float, help='Specific learning rate (optional)')
+    parser.add_argument('--batch_size', type=int, help='Specific batch size (optional)')
+    parser.add_argument('--dropout', type=str, choices=['true', 'false'], help='Use dropout (true/false)')
+    parser.add_argument('--batchnorm', type=str, choices=['true', 'false'], help='Use batchnorm (true/false)')
 
+    try:
+        args = parser.parse_args()
+    except SystemExit:
+        print("\n[ERROR] Invalid arguments passed. Check for typos in flags or values.")
+        parser.print_help()
+        exit(1)
+
+    optimizer_type = args.optimizer.lower()
     device = get_device()
 
-    learning_rates = [0.01, 0.001, 0.0001]
-    batch_sizes = [32, 64, 128]
-    dropout_options = [True, False]
-    batchnorm_options = [False, True]
+    learning_rates = [args.lr] if args.lr is not None else [0.01, 0.001, 0.0001]
+    batch_sizes = [args.batch_size] if args.batch_size is not None else [32, 64, 128]
+    dropout_options = [args.dropout == 'true'] if args.dropout is not None else [True, False]
+    batchnorm_options = [args.batchnorm == 'true'] if args.batchnorm is not None else [False, True]
 
     run_id = 1
     results = []
@@ -153,7 +164,6 @@ def main():
 
                     best_val_acc = train_model(device, lr, batch_size, dropout, batchnorm, run_id, optimizer_type)
 
-                    # Save results
                     with open(csv_filename, mode='a', newline='') as f:
                         writer = csv.writer(f)
                         writer.writerow([run_id, optimizer_type.upper(), lr, batch_size, dropout, batchnorm, f'{best_val_acc:.2f}%'])
@@ -172,6 +182,8 @@ def main():
     print("\n=== All Runs Complete ===\n")
     for res in results:
         print(res)
+
+
 
 if __name__ == '__main__':
     main()
